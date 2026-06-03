@@ -79,7 +79,7 @@ kubectl logs job/hello-job
 kubectl delete job hello-job
 ```
 
-**Kubernetes Job = run a one-time task inside the cluster and stop when it finishes.**
+**Kubernetes Job = run a one-time task and stop when it finishes.**
 
 ## 2. Security Primitives
 ### Authentication
@@ -115,7 +115,7 @@ ServiceAccounts  → Kubernetes-native identity
 
 ###### 1. Static Token , Not Recommended ^stf 
 
-But it is important to understand how the Curl command works.
+Note Recommended But it is important to understand how the Curl command with Bearer token works.
 Create token file on master/control-plane node: 
 ```sh
 sudo vi /etc/kubernetes/user-token-details.csv
@@ -126,12 +126,6 @@ KpjCVbI7rCFAHYPkBzRb7gu1cUc4B,user10,u0010,group1
 rJjncHmvtXHc6MlWQddhtvNyyhgTdxSC,user11,u0011,group1
 mjp0FIEiFOKL9toikaRNtt59ePtczZSa,user12,u0012,group2
 PG41IXhs7QjqwWkmBkvgGT9glOyUqZij,user13,u0013,group2
-```
-Configure kube-apiserver to use this file:
-```sh
-sudo vi /etc/kubernetes/manifests/kube-apiserver.yaml
-# Add this flag under command:
-# - --token-auth-file=/etc/kubernetes/user-token-details.csv
 ```
 
 Use the token from the CSV file:
@@ -218,7 +212,6 @@ The server presents this certificate to clients during the TLS handshake.
 	1. Is the certificate signed by a trusted CA? ==so The client needs a copy of the CA certificate, but only the public CA certificate, not the CA private key.==
 	2. Is the certificate still valid?
 	3. Does the certificate match api.example.com?
-	4. Is the certificate allowed for server authentication?
 
 - If all checks pass, the client trusts the server.
 
@@ -319,9 +312,8 @@ openssl req -new -key admin.key -subj \
 	"/CN=kube-admin/OU=system:masters" -out admin.csr
 # admin.csr
 
-# Note: If the CSR is for a Kubernetes component, the Common Name should match the component identity expected by Kubernetes RBAC.
 # For example, for the kube-scheduler component, use:
-# CN=system:kube-scheduler
+# CN (Common Name) =system:kube-scheduler
 # Kubernetes will authenticate this certificate as the user system:kube-scheduler, and RBAC will decide what this user is allowed to do.
 openssl req -new \
   -key scheduler.key \
@@ -373,7 +365,7 @@ curl https://kube-apiserver:6443/api/v1/pods \
 
 > [!note]
 > - In Kubernetes, core components use certificates and private keys to securely communicate with each other. Components that connect to the API Server use client certificates, while components that receive connections use server certificates.
-> - etcd can run as one node or multiple nodes so etcd has an additional peer certificate used for secure communication between etcd members in a multi-node etcd cluster.
+> - etcd can run as one node or multiple nodes so etcd has an additional Certificated called **peer certificate** used for secure communication between etcd members in a multi-node etcd cluster.
 
 > [!note] Problem and Solution: Kube API Server Certificate
 > The API Server can be accessed using different names:
@@ -442,7 +434,7 @@ ExecStart=/usr/local/bin/kube-apiserver \\
   # CA certificate used by kube-apiserver to verify the etcd server certificate
   --etcd-cafile=/var/lib/kubernetes/ca.pem \\
 
-  # API Server needs to talk with ETCD (API Server is a Client for ETCD) so Client certificate used by kube-apiserver to authenticate itself to etcd
+  # API Server needs to talk with ETCD (API Server is a Client for ETCD) , so this certificate used by kube-apiserver to authenticate itself to etcd
   --etcd-certfile=/var/lib/kubernetes/apiserver-etcd-client.crt \\
 
   # Private key for the kube-apiserver etcd client certificate
@@ -489,7 +481,8 @@ kind: KubeletConfiguration
 apiVersion: kubelet.config.k8s.io/v1beta1
 authentication:
   x509:
-    clientCAFile: "/var/lib/kubernetes/ca.pem" # CA Certificate
+	# CA Certificate
+    clientCAFile: "/var/lib/kubernetes/ca.pem" 
 authorization:
   mode: Webhook
 clusterDomain: "cluster.local"
@@ -521,7 +514,6 @@ cat /etc/kubernetes/manifests/kube-apiserver.yaml
 # - --tls-private-key-file=/etc/kubernetes/pki/apiserver.key
 # .....
 
-cat /etc/Kubernetes/pki/apiserver.crt
 openssl x509 -in /etc/kubernetes/pki/apiserver.crt -text -noout
 ```
 
@@ -569,24 +561,25 @@ journalctl -u etcd.service
 # Cluster with kubeadm: various components are deployed as pods.
 kubectl logs etcd-master
 
-# If the core components such as the kube-apiserver or the ETCD are down , the kubectl command won't function, in that case , you have to go one level down to docker to fetch the logs 
+# If the core components such as the kube-apiserver or the ETCD are down , the kubectl command won't function, in that case , you have to go one level down to docker to fetch the logs as shown below
+# Container-d is commonly the default/recommended runtime, Use the Commands blow to check containerd logs: 
 crictl ps -a
 crictl logs #<etcd-master Container id>
 ```
 
 **Certificates API**
-- The CA is really just the pair of key and certificate files we have generated. Whoever gains access to this pair of files can sign any certificate for the Kubernetes environment; they can create as many users as they want, with whatever privileges they want. So these files need to be protected and stored in a safe environment.
+- The CA is the pair of key and certificate files we have generated. Whoever gains access to this pair of files can sign any certificate for the Kubernetes environment; they can create as many users as they want, with whatever privileges they want. So these files need to be protected and stored in a safe environment.
 - So we place them on a server that is fully secure (CA server).
 - The certificate key file is safely stored in that server, Every time you want to sign a certificate, you can only do it by logging into that server.
-- we have the certificates placed on the Kubernetes master node itself. So the master node is also our CA server. The `kubeadm` tool does the same thing. It creates a CA pair of files and stores that on the master node itself. 
-- So far, we have been signing requests manually. But as and when the users increase and your team grows, you need a better automated way to manage the certificates, signing requests
+- we have the certificates placed on the Kubernetes master node itself. So the master node is our CA server. The `kubeadm` tool does the same thing. It creates a CA pair of files and stores that on the master node itself. 
+- So far, we have been signing requests manually. But you need a better automated way to manage the certificates, signing requests
 
-Certificate API means the Kubernetes API group:
+Certificate API means the Kubernetes API group (certificates.k8s.io) :
 ```yaml
 apiVersion: certificates.k8s.io/v1
 kind: CertificateSigningRequest
 ```
-It is Kubernetes’ built-in way to ask the cluster to sign a certificate. A `CertificateSigningRequest` resource is used to request that a certificate be signed by a specific signer, then the request can be approved or denied before it is signed
+`CertificateSigningRequest` is Kubernetes’ built-in way to ask the cluster to sign a certificate, then the request can be approved or denied before it is signed
 
 1. Generate a Private key and a CSR 
 ```sh
@@ -630,10 +623,11 @@ spec:
 ```
 
 ```sh
+kubectl apply -f jane-cr.yaml
 kubectl get csr
 kubectl certificate approve #<certificate name>
 ```
-Kubernetes signs the certificate using the CA key pair and generates a certificate for the user.
+Kubernetes signs the certificate using the **CA key pair (CA server's root certificate and private key)** and generates a certificate for the user.
 This certificate can then be extracted and shared with the user.
 
 ```sh
@@ -655,7 +649,7 @@ echo "LS0.." | base64 --decode
 ```
 
 > [!important] 
-> - The controller manager is actually responsible for all the certificate-related operations. All the certificate-related operations are carried out by the controller manager. If you look closely at the controller manager, you will see that it has controllers in it called `CSR approving`, `CSR signing`, etc. They’re responsible for carrying out these specific tasks
+> - The controller manager is actually responsible for all the certificate-related operations. If you look at the controller manager, you will see that it has controllers in it called `CSR approving`, `CSR signing`, etc. They’re responsible for carrying out these specific tasks
 > - We know that if anyone has to sign certificates, they need the `CA server's root certificate` and `private key` as shown below
 
 ```sh
@@ -711,6 +705,7 @@ contexts:
     user: jane
     namespace: dev
 
+# Current Context
 current-context: jane-context
 ```
 
@@ -761,8 +756,7 @@ kubectl get sa -n production
 - In order for my application to query the Kubernetes API, it has to be authenticated , for that we use a service account.
 - A service account is the identity of a service.
 - A service account is associated with what is known as a token.
-- A token is what is used to authenticate a service account to the Kubernetes API.
-- so if you have ever authenticated to an API using a curl command or something , then you probably know of the token that is passed through as a Bearer token in the header of the call, this token is what proves the identity of the SA to the API endpoint 
+- so if you authenticated to an API using a curl command or something , then the token is passed through as a Bearer token in the header of the call, this token is what proves the identity of the SA to the API endpoint 
 
 ###### Service Account and Token
 By default, when a Kubernetes cluster is created, Kubernetes creates a default ServiceAccount in every namespace.
@@ -896,7 +890,7 @@ Volumes:
     DownwardAPI:             true
 ```
 - This confirms that the Pod is now using the custom ServiceAccount dashboard-sa ( as a Projected Volume ) instead of the default ServiceAccount.
-- Kubernetes [[#^automatically]] creates a short-lived token and mounts it inside a projected volume inside a Pod.
+- Kubernetes [[#^automatically]] creates a **short-lived token** and **mounts** it inside a projected volume inside a Pod.
 - The **kubelet** also automatically rotates this token, and this token is bound to the life of the pod, so it is automatically expired when the pod is deleted.
 
 **Disable Auto-Mounting of ServiceAccount Token** ^automatically
@@ -962,9 +956,8 @@ curl -k https://<kube-api-server-ip>:6443/api/v1/pods \
 
 ### Authorization
 #### Prerequisites - API Groups
-- API group is a way to organize Kubernetes resources inside the Kubernetes API.
-- Kubernetes API‎ is grouped into multiple such groups based on their purpose, such as one for APls `/apis`, one for health `/healthz`, one for metrics`/metrics` and logs`logs`, etc.
-- `/version` The version APl is for viewing the version of the cluster.
+- API group is a way to organize Kubernetes resources inside the Kubernetes API based on their purpose.
+- Such as one for APls `/apis`, one for health `/healthz`, one for metrics`/metrics` and logs`logs`, etc.
 ```sh
 $ curl https://kube-master:6443/version
 {
@@ -1010,17 +1003,19 @@ curl https://localhost:6443/ -k
 }
 ```
 - The `-k` option means: Ignore TLS certificate verification, So `curl` will connect even if the API server certificate is self-signed or not trusted by your machine.
-- Unauthorized as we need to specify the Private key , Certificate and CA: curl https://localhost:6443 -k `--key admin.key` `--cert admin.crt` `--cacert ca.crt`
-- An alternate option is to start a kubectl proxy client using commad: `kubectl proxy`, this launchesa a **local HTTP proxy** from your machine to the **Kubernetes API Server** on port `8001`, and uses credentials from your kubeconfig file to access the cluster. That way, you don't have to specify those in the curl command.
+- To Fix Unauthorized error, we need to specify the Private key , Certificate and CA Using command flags: curl https://localhost:6443 -k `--key admin.key` `--cert admin.crt` `--cacert ca.crt`
+- An alternate option is to start a kubectl proxy client using commad: `kubectl proxy`,<u>this launchesa a **local HTTP proxy** from your machine to the **Kubernetes API Server** on port `8001`</u>, and uses credentials from your kubeconfig file to access the cluster. That way, you don't have to specify those in the curl command.
 - **Kube-Proxy vs Kubectl Proxy**: 
 	- kube-Proxy: is used to enable connectivity between pods and services across different nodes in the cluster.
 	- Kubectl Proxy: is an HTTP proxy service created by kubectl utility to access the kube-apiserver.
 
 ```sh
+# 0. Launch local http proxy
 kubectl proxy  # --port=<Port Number>
 # output: Starting to serve on 127.0.0.1:8001
 
 # 1. This command shows the main API paths available on the Kubernetes API server.
+# Use port: 8001 instead of 6443
 curl http://localhost:8001/ -k 
 {
   "paths": [
@@ -1141,7 +1136,8 @@ What are you allowed to do?
 - Usually enabled like this:
 	- `--authorization-mode=Node,RBAC`
 	- `--enable-admission-plugins=NodeRestriction`
-		- Node Authorization = special permissions for kubelet nodes.
+		- `--authorization` = special permissions for kubelet nodes.
+		- Without `Node Restriction`, a kubelet might be able to say: "I am node-1, but I want to modify node-2 or update pods not running on me." `NodeRestriction` blocks that.
 
 **2. ABAC** ^abac
 - Attribute-Based Access Control
@@ -1187,12 +1183,13 @@ metadata:
   name: pod-reader
   namespace: production
 rules:
-  - apiGroups: [""]
+	# apiGroup: [""] , Pod is Core api Group and The core API group has no group name, so apiGroup represents as an empty string ""
+  - apiGroups: [""] 
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
 ```
 
-> [!important] But this only protects the Kubernetes API
+> [!important] But this **only protects** the **API Server**
 > - Authentication and Authorization protect access to the Kubernetes API Server.
 > - They control actions like:
 > 	- create pod
@@ -1334,10 +1331,89 @@ roleRef:
 ---
 
 ### Network Policies
+**Prerequisites - CNI**
+- CNI means Container Network Interface , is the networking system/plugin that gives Pods network connectivity.
+- It gives Pods IP addresses and connects them to the cluster network.
+
+> [!info] Simple flow
+> Pod is created
+>       ↓
+> kubelet asks container runtime to create Pod sandbox
+>       ↓
+> container runtime calls CNI plugin
+>       ↓
+> CNI plugin creates network interface - creates network connectivity for the Pod
+>       ↓
+> Pod gets IP address
+>       ↓
+> Pod can communicate in the cluster
+
+- Solutions that Support Network Policies: `Calico`, `Cilium`, `Kube-router`, `Romana`
+- Solutions that DO NOT Support Network Policies: `Flannel`
+
+**Anatomy**
 - controlling application communication
 - **To restrict traffic between Pods, Which pod is allowed to talk to which pod?**
+	- NetworkPolicy = firewall rules for Pods
 	- Only backend can access postgres.
 	- Frontend cannot access postgres directly.
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: db-policy
+spec:
+  podSelector:
+    matchLabels:
+      role: db
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              name: api-pod
+      ports:
+        - protocol: TCP
+          port: 3306
+```
+- This NetworkPolicy applies to Pods with label `role=db`
+- It allows incoming traffic only from Pods with label `name=api-pod`
+- It allows traffic only on TCP port `3306`, usually MySQL.
+- Other incoming traffic to the db Pods will be blocked
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: db-policy
+spec:
+  podSelector:
+    matchLabels:
+      role: db
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              name: api-pod
+      ports:
+        - protocol: TCP
+          port: 3306
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 192.168.5.10/32
+      ports:
+        - protocol: TCP
+          port: 80
+```
+- DB Pods can receive traffic only from api-pod on port 3306.
+- DB Pods can send traffic only to 192.168.5.10 on port 80.
+- All other ingress and egress traffic for DB Pods is denied.
 
 ---
 
@@ -1564,10 +1640,9 @@ ExecStart=/usr/local/bin/kubelet \\
 # ...
 ```
 
-- Change `AlwaysAllow` to `Webhook`: the kubelet makes a call to the API server to determine whether each request can be authorized or not. And depending on the result received from the API server, it either rejects or approves the request.
-- Means the kubelet will **stop automatically allowing every request** and will instead ask the kube-apiserver if the request is allowed.
-- If someone has a valid certificate or bearer token and can reach kubelet port `10250`, kubelet may allow access to endpoints like: `/pods`, `/exec` This is dangerous because authorization is too weak.
-- After: `Webhook`, Meaning The `kubelet` asks the `kube-apiserver`: *Is this user allowed to do this action?*
+- **Problem**: If someone has a valid certificate or bearer token and can reach kubelet port `10250`, kubelet may allow access to endpoints like: `/pods`, `/exec` This is dangerous because authorization is too weak.
+- **Solve**: Change `AlwaysAllow` to `Webhook`: the kubelet makes a call to the API server to determine whether each request can be authorized or not. And depending on the result received from the API server, it either rejects or approves the request.
+- Means the `kubelet` will **stop automatically allowing every request** and will instead ask the `kube-apiserver` if the request is allowed.
 
 ```yaml
 apiVersion: kubelet.config.k8s.io/v1beta1
@@ -1577,7 +1652,7 @@ readOnlyPort: 0
 
 > [!summary]
 
-- 10250 = secure kubelet HTTPS port. `anonymous: false` + `authorization Webhook` = protect it
+- 10250 = secure kubelet HTTPS port. `anonymous: false` + `Use CA certificate` + `authorization Webhook` = protect it
 - 10255 = insecure read-only kubelet port. `readOnlyPort: 0` = disable it
 
 `kubelet.service` : 
@@ -1624,4 +1699,650 @@ Disables the insecure read-only kubelet port 10255.
 
 ---
 
+## 4. Cluster Upgrade
+**Pre-Upgrade Notes**
+- Upgrade one minor version at a time **(e.g., 1.10 → 1.11 → 1.12, never skip versions)**
+- Kubernetes supports only the last 3 minor versions
 
+[doc - Upgrading kubeadm clusters](https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-upgrade/)
+[doc - Changing The Kubernetes Package Repository](https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/change-package-repository/)
+
+
+**Phase 1: Check upgrade plan**
+`kubectl get nodes` Show Current Versions
+
+How many nodes can host workloads in this cluster? 
+`kubectl describe nodes  controlplane | grep -i taint`
+`kubectl describe nodes  node01 | grep -i taint`
+
+`kubeadm upgrade plan | grep -i remote` Show kubeadm latest version available
+
+`kubeadm upgrade plan` Shows current versions, available versions, and what needs manual upgrade.
+
+**Phase 2: Upgrade the Master Node**
+1. Upgrade kubeadm on master
+`apt-get upgrade -y kubeadm=1.12.0-00`
+
+2. Apply the upgrade
+`kubeadm upgrade plan v1.12.0`
+`kubeadm upgrade apply v1.12.0`
+
+3. Upgrade kubelet on master (kubeadm does NOT do this automatically)
+`apt-get upgrade -y kubelet=1.12.0-00`
+
+4. Restart kubelet
+`systemctl restart kubelet`
+
+5. Verify
+`kubectl get nodes`
+
+**While the master is upgrading, worker nodes keep serving traffic normally. Management functions (kubectl, controller-manager) are temporarily unavailable.**
+
+**Phase 3: Upgrade Worker Nodes (one at a time)**
+Run steps `1 and 6` from the `master node`, steps `2 to 5` on the `worker node`:
+
+1. Drain the node **(run on master)**
+`kubectl drain node-1 --force --ignore-daemonsets`
+
+2. Upgrade kubeadm (run on the worker node)
+`apt-get upgrade -y kubeadm=1.12.0-00`
+
+3. Upgrade kubelet (run on the worker node)
+`apt-get upgrade -y kubelet=1.12.0-00`
+
+4. Update kubelet config (run on the worker node)
+`kubeadm upgrade node config --kubelet-version v1.12.0`
+
+5. Restart kubelet (run on the worker node)
+`systemctl restart kubelet`
+
+6. Uncordon the node **(run on master)**
+`kubectl uncordon node-1`
+
+**Repeat Phase 3 for each worker node.**
+
+**Labs - Cluster Upgrade**
+1. Upgrade The Master Node
+```sh
+kubectl drain controlplane --force --ignore-daemonsets
+
+vim /etc/apt/sources.list.d/kubernetes.list
+# Update the version in the URL to the next available minor release, i.e v1.35. 
+# deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /
+
+apt update
+apt-cache madison kubeadm
+# Based on the version information displayed by apt-cache madison, it indicates that for Kubernetes version 1.35.0, one of the available package versions is 1.35.0-1.1. Therefore, to install kubeadm for Kubernetes v1.35.0, use the following command:
+
+apt-get install kubeadm=1.35.0-1.1
+
+kubeadm upgrade plan v1.35.0
+kubeadm upgrade apply v1.35.0
+
+apt-get install kubelet=1.35.0-1.1
+
+systemctl daemon-reload
+systemctl restart kubelet
+
+kubectl uncordon controlplane
+kubectl get node
+```
+
+2. Upgrade The Worker Node
+```sh
+kubectl drain node01 --force --ignore-daemonsets
+
+ssh node01
+vim /etc/apt/sources.list.d/kubernetes.list
+# add: deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /
+
+apt update
+apt-cache madison kubeadm
+
+apt-get install kubeadm=1.35.0-1.1
+kubeadm upgrade node
+
+apt-get install kubelet=1.35.0-1.1
+
+systemctl daemon-reload
+systemctl restart kubelet
+
+exit 
+
+kubectl uncordon node01
+```
+
+---
+
+## 5. Ingress
+- Ingress is a Kubernetes object used to expose HTTP/HTTPS applications outside the cluster.
+- It gives external users access to Services inside Kubernetes using URLs like: `https://app.example.com`
+
+Ingress has two parts:
+1. Ingress Resource
+The Ingress Resource is the YAML object you create. It contains the routing rules.
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+spec:
+  rules:
+    - host: app.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api-service
+                port:
+                  number: 80
+```
+When traffic comes to `app.example.com/api`, send it to `api-service` on port `80`
+> [!important]
+> - Ingress Resource is only configuration.
+> - It does not receive traffic by itself.
+
+2. Ingress Controller
+The Ingress Controller is the real running component that reads the Ingress Resource and applies the routing.
+Examples of Ingress Controllers:
+```text
+NGINX Ingress Controller
+Traefik
+HAProxy Ingress
+AWS ALB Controller
+GCE Ingress Controller
+Istio Ingress Gateway
+```
+The controller usually runs as Pods inside the cluster.
+```sh
+kubectl get pods -n ingress-nginx
+```
+**The controller receives external traffic and forwards it to the correct Service.**
+
+>[!summary]
+> - **Ingress Resource** = traffic rules / configuration file
+> - **Ingress Controller** = actual router / reverse proxy that uses those rules
+> - Like Nginx:
+> 	- nginx.conf = Ingress Resource
+> 	- nginx process = Ingress Controller
+
+### Ingress Types
+#### 1. Path-based Ingress
+Routes traffic based on URL path.
+- example.com/wear   → wear-service
+- example.com/watch  → watch-service
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: path-based-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: example.com
+      http:
+        paths:
+          - path: /wear
+            pathType: Prefix
+            backend:
+              service:
+                name: wear-service
+                port:
+                  number: 80
+
+          - path: /watch
+            pathType: Prefix
+            backend:
+              service:
+                name: watch-service
+                port:
+                  number: 80
+```
+Two Services `wear-service` and `watch-service` can expose the same Service port `80` This is valid because each Service has its own ClusterIP.
+#### 2. Host-based Ingress
+Routes traffic based on domain/subdomain.
+- wear.example.com   → wear-service
+- watch.example.com  → watch-service
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: host-based-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: wear.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: wear-service
+                port:
+                  number: 80
+
+    - host: watch.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: watch-service
+                port:
+                  number: 80
+```
+
+#### 3. Default Backend
+Used when no rule matches.
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: default-backend-ingress
+spec:
+  ingressClassName: nginx
+  defaultBackend:
+    service:
+      name: default-service
+      port:
+        number: 80
+```
+
+---
+
+## 6. Docker Service Configuration
+- `dockerd` is the Docker daemon.
+- It is the background process that actually manages Docker on your machine.
+- When you run `docker run nginx` , the `docker` command is only the client.
+- The client sends requests to `dockerd` , Then `dockerd` does the real work.
+- **Simple architecture**: `docker CLI` => `dockerd` => `containerd` => `runc` => `Linux kernel`
+- To show docker daemon logs run `dockerd --debug` 
+- So when the Docker daemon starts, it listens on an internal Unix socket at the path `/var/run/docker.sock`
+- A Unix socket is an inter-process communication mechanism that is used for communication between different processes on the same host.
+- This means that the Docker daemon is only accessible within the same host, and the Docker CLI is configured to interact with the Docker daemon on this socket.
+- To establish a connectivity from outside this host (there is another host with docker CLI installed on it and want to target the Docker host to run contianers) make the docker daemon listen on a **TCP interface** on the docker host by adding `--host`
+
+```sh
+dockerd --debug \
+	--host=tcp://192.168.1.10:2375
+```
+
+- In this case, our host happens to have an interface at `192.168.1.10` and the standard port for Docker happens to be `2375`.
+- Now the Docker daemon is accessible from outside of the Docker host using the IP `192.168.1.10` and the port `2375`
+- The other host can now target the Docker daemon using the docker command: 
+```sh
+export DOCKER_HOST="tcp://192.168.1.10:2375"
+# then run
+docker ps 
+```
+ 
+- By default, The Docker daemon serves unencrypted traffic.
+
+1. To enable **Encryption**
+- In this Step , we will make an Encryption only not Authentication, you must first create **a pair of TLS certificates** and add the **TLS flag** to true as shown below
+
+```sh
+# We have the Docker Host - Server and Another Host with Docker Cli
+# From the Docker Host:
+dockerd --debug \
+	--host=tcp://192.168.1.10:2376 \
+	--tls=true \
+	--tlscert=/var/docker/server.pem \
+	--tlskey=/var/docker/serverkey.pem
+	
+# From Client host change the port from 2375 to 2376 
+export DOCKER_HOST="tcp://192.168.1.10:2376"
+# 2375 => Unencrypted
+# 2376 => Encrypted
+
+export DOCKER_TLS=true
+# or use flag: --tls 
+docker --tls ps
+```
+
+In The Docker host, Can use the config file: `/etc/docker/daemon. json`
+```json
+"debug": true,
+"hosts": ["tcp://192.168.1.10:2376"],
+"tls": true,
+
+// TLS certificate and private key for the Docker daemon server
+"tlscer": "/var/docker/server.pem",
+"tlskey": "/var/docker/serverkey.pem"
+```
+
+- `--tlscert=/var/docker/server.pem`: This is the server certificate used by `dockerd`, It proves to Docker clients: `I am the real Docker daemon running on 192.168.1.10.`
+- `--tlskey=/var/docker/serverkey.pem`: This is the private key for that server certificate. It proves that dockerd owns the certificate. This file must be kept secret.
+- **Note**: `--tls` option alone does **not authenticate**, it only **enables encryption** and **anyone can still access the docker daemon**
+
+2. To Enable **Authentication (certificate-based authentication)**
+- Enables authentication: `"tlsverify": true`
+- The CA Certificate `"tlscacert": "/var/docker/caserver.pem"` is used by the Docker daemon to verify client certificates.
+- So our clients now need certificates signed by the CA and that's the only way now they can access the Docker daemon.
+- So we generate certificates for our clients called `client.pem` and `client-key.pem` and share that securely with the client that wants to connect to the host Along with the certificate of the `CA`.
+
+From Docker Host: `/etc/docker/daemon.json`
+```json
+{
+"hosts": ["tcp://192.168.1.10:2376"]
+"tls": true,
+"tlscert": "/var/docker/server.pem",
+"tlskey": "/var/docker/serverkey.pem",
+
+// enables authentication:
+"tlsverify": true,
+// 1. Docker client verifies the Docker server.
+// 2. Docker server also verifies the Docker client.
+
+// This is the CA certificate used by the Docker daemon to verify client certificates.
+"tlscacert": "/var/docker/caserver.pem",
+// Only Docker clients with certificates signed by this CA are trusted.
+
+}
+```
+From Client host:
+```sh
+export DOCKER_TLS_VERIFY=true
+
+docker \
+  --host=tcp://192.168.1.10:2376 \
+  --tlsverify \
+  --tlscacert=/path/to/ca.pem \
+  --tlscert=/path/to/client.pem \
+  --tlskey=/path/to/client-key.pem \
+  ps
+
+# or drop the certificates in ~/.docker directory
+
+# ca.pem: The CA certificate used by the Docker client to verify the Docker server certificate. 
+# client.pem: The client certificate sent by Docker client to authenticate to the Docker daemon.
+# client-key.pem: The private key for the client certificate.
+```
+
+> [!summary]
+> Docker client
+>    ↓
+> connects to tcp://192.168.1.10:2376
+>    ↓
+> dockerd sends server.pem
+>    ↓
+> client verifies server.pem using ca.pem
+>    ↓
+> client sends client.pem
+>    ↓
+> dockerd verifies client.pem using ca.pem
+>    ↓
+> if both are valid, connection is allowed
+>    ↓
+> docker ps runs remotely
+
+---
+
+## 7. Securing Node Metadata
+- Node metadata means the descriptive information attached to a Node object like: `name` , `labels`, `annotations`, `system info`
+- We secure node metadata because it can leak cluster information and cloud credentials, which attackers can use for privilege escalation and lateral movement.
+
+**1. Prevent Unauthorized Access**
+Identify vulnerabilities in this version of kubelet
+```sh
+kubectl get nodes -o jsonpath='{.items[*].status.nodeInfo.kubeletVersion}'
+# Example output:
+# 1.26.0
+```
+Risk:
+If the attacker knows the kubelet version, they can search for known vulnerabilities affecting that specific version and try to exploit them.
+
+**2. Protect Against Misconfiguration**
+Example misconfiguration, An inexperienced user accidentally removes a critical taint from a production node:
+```sh
+kubectl taint nodes node-1 key=value:NoSchedule-
+# Example output:
+# node/node-1 untainted
+```
+Risk:
+Removing important taints can break workload isolation and allow the wrong Pods to run on sensitive production nodes.
+
+**3. Maintain Privacy**
+Attacker lists internal node IP addresses
+```sh
+kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}'
+# 192.168.1.10 192.168.1.11 192.168.1.12
+```
+Risk:
+Internal node IPs reveal the cluster network layout and can help attackers targets attacks.
+
+**4. Ensure Compliance**
+Unauthorized access to node kernel versions
+```sh
+kubectl get nodes -o jsonpath='{.items[*].status.nodeInfo.kernelVersion}'
+# 5.4.0-1041-aws 4.15.0-142-generic 5.8.0-53-generic
+```
+Risk:
+Kernel versions can reveal sensitive infrastructure details and may expose whether nodes are running outdated or vulnerable kernels.
+
+These are controls used to secure Kubernetes node metadata: 
+- **RBAC**: controls who can access and modify node metadata
+- **Node isolation**: reserves specific nodes for designated workloads, ensuring that less critical or unauthorized applications are prevented from running on them.
+- **Audit logs**: track who accessed or modified node metadata and when.
+- **Regular updates and patches**: to ensure that vulnerabilities in the metadata or infrastructure aren’t exploited.
+
+**Solution: Block pods from reaching cloud metadata endpoint**: 
+- **Note**: `169.254.169.254` is not a public IP. It is a link-local address, reachable only from the local machine/network namespace, not routed on the public internet.
+- To prevent any Pod in a namespace from reaching the **IP address of the metadata server**, set up a network policy that allows egress traffic to all IP addresses except `169.254.169.254`
+- For metadata endpoints, we block IPs like `169.254.169.254` as Most cloud metadata services use `169.254.169.254` , so we need: 
+	- Allow egress to all IPv4 addresses
+	- except `169.254.169.254/32`
+	
+```sh
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-metadata-server
+  namespace: production
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+```
+Run a test pod in the namespace:
+```sh
+kubectl run test-curl \
+  -n production \
+  --image=curlimages/curl \
+  --rm -it -- sh
+  
+# Inside the pod:
+curl -m 3 http://169.254.169.254
+# Expected result:
+# Connection timed out , Could not connect
+```
+
+---
+
+## 8. Auditing
+Auditing is essential for tracking who did what, when, and where within a Kubernetes cluster.
+- `Audit Policy` is a configuration file used by the kube-apiserver to decide:
+	- Which Kubernetes API requests should be logged?
+	- How much detail should be logged?
+	- Which requests should be ignored?
+
+**Audit levels**
+Kubernetes audit policy has different logging levels:
+1. **None**: No events are logged.
+2. **Metadata**: Logs only request metadata (user, timestamp, resource, verb) without request/response bodies.
+3. **Request**: Logs both event metadata and the request body, but excludes the response body.
+4. **Request Response**: Logs event metadata, the request body, and the response body.
+
+
+**1. None Audit Policy**:
+```yaml
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+  - level: None
+    verbs: ["get", "list"]
+    resources:
+      - group: ""
+        resources: ["pods"]
+```
+- `level: None` means: Do not log matching requests.
+- Any request matching this rule `get` , `list` will be ignored by the audit log.
+
+**2. Metadata Policy**: 
+```yaml
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+  - level: Metadata
+    verbs: ["get", "list", "create", "delete", "update"]
+    resources:
+      - group: ""
+        resources: ["pods"]
+```
+Audit log event output:
+```json
+{
+  "kind": "Event",
+  "apiVersion": "audit.k8s.io/v1",
+  "level": "Metadata",
+  "timestamp": "2024-10-11T12:34:56Z",
+  "user": {
+    "username": "system:serviceaccount:kube-system:default",
+    "groups": ["system:serviceaccounts", "system:serviceaccounts:kube-system"]
+  },
+  "verb": "get",
+  "namespace": "default",
+  "resource": "pods",
+  "stage": "ResponseComplete",
+  "objectRef": {
+    "resource": "pods",
+    "namespace": "default",
+    "name": "example-pod"
+  }
+}
+```
+
+**3. Request Policy**
+```yaml
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+  - level: Request
+    verbs: ["create", "delete", "update"]
+    resources:
+      - group: ""
+        resources: ["pods"]
+```
+Audit Log Event Output: 
+```json
+{
+// Metadata
+  "kind": "Event",
+  "apiVersion": "audit.k8s.io/v1",
+  "level": "Request",
+  "timestamp": "2024-10-11T12:34:56Z",
+  "user": {
+    "username": "system:serviceaccount:kube-system:default",
+    "groups": ["system:serviceaccounts", "system:serviceaccounts:kube-system"]
+  },
+  "verb": "create",
+  "namespace": "default",
+  "resource": "pods",
+  "stage": "ResponseComplete",
+  "objectRef": {
+    "resource": "pods",
+    "namespace": "default",
+    "name": "example-pod"
+  },
+  
+  // Request Object
+  "requestObject": {
+    "metadata": {
+      "name": "example-pod",
+      "namespace": "default"
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "example-container",
+          "image": "nginx"
+        }
+      ]
+    }
+  }
+}
+```
+
+**4. RequestResponse**
+```yaml
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+  - level: RequestResponse
+    verbs: ["create", "delete", "update"]
+    resources:
+      - group: ""
+        resources: ["pods"]
+```
+Audit Log Event Output:
+```json
+{
+  "kind": "Event",
+  "apiVersion": "audit.k8s.io/v1",
+  "level": "RequestResponse",
+  "timestamp": "2024-10-11T12:34:56Z",
+  "user": {
+    "username": "system:serviceaccount:kube-system:default",
+    "groups": ["system:serviceaccounts", "system:serviceaccounts:kube-system"]
+  },
+  "verb": "create",
+  "namespace": "default",
+  "resource": "pods",
+  "stage": "ResponseComplete",
+  "objectRef": {
+    "resource": "pods",
+    "namespace": "default",
+    "name": "example-pod"
+  },
+  "requestObject": {
+    "metadata": {
+      "name": "example-pod",
+      "namespace": "default"
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "example-container",
+          "image": "nginx"
+        }
+      ]
+    }
+  },
+  "responseObject": {
+    "metadata": {
+      "name": "example-pod",
+      "namespace": "default",
+      "uid": "12345-67890-abcd",
+      "creationTimestamp": "2024-10-11T12:34:56Z"
+    },
+    "status": {
+      "phase": "Pending"
+    }
+  }
+}
+```
+
+---
