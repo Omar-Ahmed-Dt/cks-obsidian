@@ -467,6 +467,7 @@ ExecStart=/usr/local/bin/kube-apiserver \\
 
   # Private key for the kube-apiserver server certificate
   # is used when the API Server acts as a server.
+  # Okay, this certificate says you are kube-apiserver. Now prove that you own the private key for this certificate.
   --tls-private-key-file=/var/lib/kubernetes/apiserver.key \\
 
   --v=2
@@ -476,8 +477,8 @@ ExecStart=/usr/local/bin/kube-apiserver \\
 > - When kube-apiserver connects to kubelet, the API Server acts as a client and the kubelet acts as a server.
 > - First, the API Server verifies the kubelet server certificate using the **CA** configured with `--kubelet-certificate-authority`
 > - Then, the API Server authenticates itself to the kubelet using the Certificate`--kubelet-client-certificate` and the Private key`--kubelet-client-key`
-> - The kubelet verifies whether the API server client certificate <u>is valid or not</u> by using its `clientCAFile`
-> - Then kubelet checks that the API Server <u>owns the certificate</u> by verifying a signature created with the API Server client private key `--kubelet-client-key`. The kubelet verifies this signature using the public key inside the API Server client certificate `--kubelet-client-certificate` - The API Server does not send the private key, API Server takes TLS handshake data **(during the TLS handshake, both sides exchange messages before encryption starts. These messages are the handshake data)** , and signs it using its private key **(API Server uses its private key to create a digital signature over the handshake data)**, Then API Server sends the signature to kubelet.
+> - The kubelet ==verifies whether the API server client certificate is valid or not== by using its `clientCAFile` - `clientCAFile` points to a CA certificate file, and that CA certificate contains the **public key of the CA**
+> - Then kubelet ==checks that the API Server owns the certificate== by verifying a signature created with the API Server client private key `--kubelet-client-key`. The kubelet verifies this signature using the public key inside the API Server client certificate `--kubelet-client-certificate` - The API Server does not send the private key, API Server takes TLS handshake data **(during the TLS handshake, both sides exchange messages before encryption starts. These messages are the handshake data)** , and signs it using its private key `--kubelet-client-key` **(API Server uses its private key to create a digital signature over the handshake data)**, Then API Server sends the signature to kubelet.
 > - kubelet already has the certificate `--kubelet-client-certificate` and inside that certificate there is the public key, This signature proves The API Server owns the private key that matches the public key inside its certificate.
 > - After this TLS handshake, both sides derive **symmetric session keys**, and these session keys encrypt the actual traffic.
 
