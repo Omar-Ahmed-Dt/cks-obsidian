@@ -2731,7 +2731,7 @@ IP 10.0.0.34.36484 > 10.0.1.231.4240: Flags [.], ack 2, win 508, options [nop,no
 0 packets dropped by kernel
 root@node01:/home/cilium# 
 
-# Here we are using `tcpdump`` to capture and display detailed network packets on the cilium_wg0 interface.
+# Here we are using `tcpdump` to capture and display detailed network packets on the cilium_wg0 interface.
 # The -n option avoids DNS lookups, and the -X option shows packet content in both hexadecimal and ASCII format.
 # Via tcpdump, you should see the traffic between the pods.
 # We see requests from curlpod to nginx and responses from nginx to curlpod in tcpdump output.
